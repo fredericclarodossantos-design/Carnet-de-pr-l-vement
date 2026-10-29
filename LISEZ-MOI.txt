@@ -1,0 +1,13 @@
+INSTALLER SUR TELEPHONE (gratuit)
+
+1. Hebergez ce dossier sur une page web en HTTPS. Le plus simple : Netlify Drop
+   (app.netlify.com/drop) -> glissez-deposez le dossier, vous obtenez une adresse.
+   Une adresse par outil : ne melangez pas les deux dossiers.
+2. Ouvrez l'adresse sur le telephone.
+   - iPhone : Safari -> Partager -> "Sur l'ecran d'accueil".
+   - Android : Chrome -> menu -> "Installer l'application".
+3. L'icone apparait ; l'outil s'ouvre en plein ecran et marche hors ligne
+   apres la premiere ouverture.
+
+Les donnees restent sur l'appareil (pas de synchronisation telephone/ordinateur).
+Pour mettre a jour : remplacez les fichiers et changez la version dans sw.js (carnet-prelevements-amiante-v5).
