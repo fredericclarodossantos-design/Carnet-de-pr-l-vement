@@ -194,6 +194,8 @@ dialog::backdrop{background:rgba(8,14,18,.6)}
 .qchip:hover,.qchip:focus-visible{border-color:currentColor}
 
 
+.bak{padding:12px 14px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;border-color:var(--wait);background:var(--wait-soft)}
+.bak p{margin:0;color:var(--wait);font-weight:600;font-size:.9rem;flex:1 1 240px}
 .photo-bar{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
 .photo-btn{cursor:pointer}
 .photo-prev{display:block;max-width:100%;max-height:220px;margin-top:8px;border:1px solid var(--line-strong);border-radius:6px}
@@ -222,6 +224,13 @@ dialog::backdrop{background:rgba(8,14,18,.6)}
   </section>
 
   <div id="app" hidden>
+    <section class="card bak" id="bak-banner" role="status" hidden>
+      <p id="bak-txt"></p>
+      <div class="row">
+        <button type="button" class="btn btn-primary" id="btn-bak-now">Sauvegarder maintenant</button>
+        <button type="button" class="btn btn-quiet" id="btn-bak-later">Plus tard</button>
+      </div>
+    </section>
     <section class="card dossier">
       <div class="dossier-row">
         <label class="fld"><span>Dossier</span><select id="sel-dossier"></select></label>
@@ -236,7 +245,7 @@ dialog::backdrop{background:rgba(8,14,18,.6)}
     <section class="card summary" aria-label="Bilan par liste">
       <div class="sum-top">
         <div class="sum-count"><span id="sum-total">0</span><small>prélèvements</small></div>
-        <div class="sum-actions"><button type="button" class="btn" id="btn-export">Exporter en Excel</button><button type="button" class="btn btn-primary" id="btn-bordereau">Fichier Excel labo</button></div>
+        <div class="sum-actions"><button type="button" class="btn" id="btn-export">Exporter en Excel</button><button type="button" class="btn btn-primary" id="btn-bordereau">Fichier Excel labo</button><button type="button" class="btn" id="btn-bak">Sauvegarde (fichier)</button><button type="button" class="btn" id="btn-restore">Restaurer</button><input type="file" id="file-restore" accept=".json,.txt,application/json,text/plain" hidden></div>
       </div>
       <ul class="legend" id="legend"></ul>
     </section>
@@ -349,10 +358,14 @@ dialog::backdrop{background:rgba(8,14,18,.6)}
       <label class="fld"><span>Contact / technicien</span><input type="text" id="b-contact"></label>
       <label class="fld"><span>Téléphone du contact</span><input type="text" id="b-tel" inputmode="tel"></label>
       <label class="fld full"><span>Commentaires sur cette affaire</span><input type="text" id="b-comm"></label>
+      <label class="fld full"><span>E-mail du laboratoire (pour l’envoi)</span><input type="text" id="b-labmail" inputmode="email" autocapitalize="off" placeholder="adresse du labo"></label>
+      <label class="fld full"><span>Copie à (facultatif)</span><input type="text" id="b-labcc" inputmode="email" autocapitalize="off" placeholder="votre adresse"></label>
     </div>
+    <p class="hint">« Envoyer par e-mail » ouvre le partage du téléphone avec le fichier joint : choisissez votre messagerie. Le message est déjà rédigé.</p>
     <p class="hint warn" id="b-warn" hidden></p>
     <div class="dlg-f">
-      <button type="submit" class="btn btn-primary">Générer le fichier Excel</button>
+      <button type="button" class="btn btn-primary" id="btn-bord-mail">Envoyer par e-mail</button>
+      <button type="submit" class="btn">Enregistrer le fichier Excel</button>
       <button type="button" class="btn" id="btn-bord-cancel">Annuler</button>
     </div>
   </form>
@@ -430,7 +443,7 @@ const LS_SET='carnet-prelevements-reglages';
 let settings=(function(){
   let s={};
   try{s=JSON.parse(localStorage.getItem(LS_SET)||'{}')||{};}catch(e){}
-  return Object.assign({code:'',nom:'',adr:'',cp:'',ville:'',delai:'J+3',rpe:'NON',dest:'',email:'',contact:'',tel:''},s);
+  return Object.assign({code:'',nom:'',adr:'',cp:'',ville:'',delai:'J+3',rpe:'NON',dest:'',email:'',contact:'',tel:'',labMail:'',labCc:''},s);
 })();
 function saveSettings(){
   try{localStorage.setItem(LS_SET,JSON.stringify(settings));}catch(e){}
@@ -484,11 +497,111 @@ function persist(m){
   m.updatedAt=Date.now();
   if(!cloudReady||syncFailed||!col)writeLocal();
   if(col)enqueue(m);else setSync('local');
+  noteChange();
+}
+
+/* ---------- Sauvegarde de secours + rappel ---------- */
+const LS_SECOURS='carnet-prelevements-secours';
+const LS_SAUV='carnet-prelevements-sauvegarde';
+const BAK_MAX_CHANGES=5, BAK_MAX_AGE=24*3600*1000, BAK_SNOOZE=2*3600*1000;
+let bak=(function(){
+  let b={};
+  try{b=JSON.parse(localStorage.getItem(LS_SAUV)||'{}')||{};}catch(e){}
+  return Object.assign({lastFile:0,changes:0,snooze:0},b);
+})();
+function saveBakMeta(){try{localStorage.setItem(LS_SAUV,JSON.stringify(bak));}catch(e){}}
+/* Copie de secours interne : deuxième emplacement, mise à jour à chaque modification */
+function writeSecours(){try{localStorage.setItem(LS_SECOURS,JSON.stringify({savedAt:Date.now(),missions:missions,settings:settings}));}catch(e){}}
+function noteChange(){
+  bak.changes++;saveBakMeta();writeSecours();updateBakBanner();
+}
+function bakDue(){
+  if(cloudReady||!missions.length||bak.changes<1)return false;
+  if(Date.now()<bak.snooze)return false;
+  const age=bak.lastFile?Date.now()-bak.lastFile:Infinity;
+  return bak.changes>=BAK_MAX_CHANGES||age>BAK_MAX_AGE;
+}
+function updateBakBanner(){
+  const b=$('#bak-banner');if(!b)return;
+  const due=bakDue();b.hidden=!due;
+  if(due){
+    const n=bak.changes;
+    $('#bak-txt').textContent='Sauvegarde conseillée : '+n+' modification'+(n>1?'s':'')+' depuis la dernière sauvegarde'+(bak.lastFile?' ('+new Date(bak.lastFile).toLocaleString('fr-FR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+')':' (jamais faite)')+'. Les données ne sont que dans ce navigateur.';
+  }
+}
+function backupBlob(){
+  return new Blob([JSON.stringify({app:'carnet-prelevements',version:1,exportedAt:new Date().toISOString(),missions:missions,settings:settings})],{type:'application/json'});
+}
+async function doBackup(){
+  if(!missions.length){toast('Aucun dossier à sauvegarder.');return;}
+  const blob=backupBlob();
+  const base='Carnet_sauvegarde_'+todayISO();
+  let done=false;
+  const dl=await useCap('downloads');
+  if(dl){
+    for(const ext of ['.json','.txt']){
+      try{await dl.save({filename:base+ext,data:blob});done=true;break;}
+      catch(e){if(e&&e.code==='declined')return;}
+    }
+    if(!done){toast('Sauvegarde impossible dans cet affichage. Utilisez le fichier HTML autonome.');return;}
+  }else{
+    try{
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download=base+'.json';
+      document.body.append(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),10000);done=true;
+    }catch(e){toast('Sauvegarde impossible.');return;}
+  }
+  bak.lastFile=Date.now();bak.changes=0;bak.snooze=0;saveBakMeta();updateBakBanner();
+  toast('Sauvegarde enregistrée : '+base+(dl?'':'.json'));
+}
+async function doRestore(file){
+  try{
+    const d=JSON.parse(await file.text());
+    if(!d||!Array.isArray(d.missions))throw new Error('format');
+    const byId=new Map(missions.map(m=>[m.id,m]));
+    let n=0;
+    d.missions.forEach(m=>{
+      if(!m||!m.id)return;
+      const cur=byId.get(m.id);
+      if(!cur||(m.updatedAt||0)>(cur.updatedAt||0)){byId.set(m.id,m);n++;}
+    });
+    missions=Array.from(byId.values());
+    if(d.settings)settings=Object.assign({},settings,d.settings);
+    saveSettings();writeLocal();
+    if(col)missions.forEach(m=>enqueue(m));
+    if(!activeId&&missions.length){activeId=sortedMissions()[0].id;saveActive();}
+    bak.changes=0;saveBakMeta();writeSecours();updateBakBanner();render();
+    toast(n?n+' dossier'+(n>1?'s':'')+' restauré'+(n>1?'s':''):'Rien à restaurer : vos dossiers sont déjà à jour.');
+  }catch(e){toast('Fichier de sauvegarde illisible.');}
+}
+function initBackup(){
+  $('#btn-bak-now').addEventListener('click',doBackup);
+  $('#btn-bak').addEventListener('click',doBackup);
+  $('#btn-bak-later').addEventListener('click',()=>{bak.snooze=Date.now()+BAK_SNOOZE;saveBakMeta();updateBakBanner();});
+  $('#btn-restore').addEventListener('click',()=>$('#file-restore').click());
+  $('#file-restore').addEventListener('change',e=>{const fl=e.target.files&&e.target.files[0];e.target.value='';if(fl)doRestore(fl);});
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateBakBanner();});
+  setInterval(updateBakBanner,5*60*1000);
+  /* Demande au navigateur de ne pas effacer les données automatiquement */
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(e){}
+  /* Si les données principales ont disparu mais que la copie de secours existe, on la reprend */
+  if(!missions.length){
+    try{
+      const s=JSON.parse(localStorage.getItem(LS_SECOURS)||'null');
+      if(s&&Array.isArray(s.missions)&&s.missions.length){
+        missions=s.missions;if(s.settings)settings=Object.assign({},settings,s.settings);writeLocal();render();
+        toast('Données récupérées depuis la copie de secours.');
+      }
+    }catch(e){}
+  }
+  updateBakBanner();
 }
 function removeMission(id){
   missions=missions.filter(m=>m.id!==id);
   if(activeId===id)activeId=null;
   formFor=null;
+  noteChange();
   if(!cloudReady||syncFailed||!col)writeLocal();
   if(col){
     const prev=chains.get(id)||Promise.resolve();
@@ -1107,6 +1220,7 @@ function openBordereau(){
   $('#b-date').value=todayISO();
   resetVilleList('#b-ville');
   ['code','nom','adr','cp','ville','dest','email','contact','tel'].forEach(k=>{$('#b-'+k).value=settings[k]||'';});
+  $('#b-labmail').value=settings.labMail||'';$('#b-labcc').value=settings.labCc||'';
   $('#b-delai').value=settings.delai||'J+3';
   $('#b-rpe').value=settings.rpe||'NON';
   $('#b-comm').value='';
@@ -1212,18 +1326,46 @@ async function makeLabFile(m,o){
   sh.raw=bytes;sh.method=0;sh.crc=crc32(bytes);sh.usize=bytes.length;
   return writeZip(ents);
 }
+async function bordGen(m){
+  const g=id=>$('#b-'+id).value.trim();
+  settings=Object.assign({},settings,{code:g('code'),nom:g('nom'),adr:g('adr'),cp:g('cp'),ville:g('ville'),delai:$('#b-delai').value,rpe:$('#b-rpe').value,dest:g('dest'),email:g('email'),contact:g('contact'),tel:g('tel'),labMail:g('labmail'),labCc:g('labcc')});
+  saveSettings();
+  try{return await makeLabFile(m,Object.assign({},settings,{dateEnvoi:$('#b-date').value,comm:g('comm')}));}
+  catch(err){toast('La génération du fichier a échoué (navigateur trop ancien ?).');return null;}
+}
+const BORD_NAME=m=>'Bordereau_LAB-EXPERT_'+slug(m.ref)+'_'+todayISO()+'.xlsm';
 $('#f-bord').addEventListener('submit',async e=>{
   e.preventDefault();
   const m=active();if(!m)return;
-  const g=id=>$('#b-'+id).value.trim();
-  settings=Object.assign({},settings,{code:g('code'),nom:g('nom'),adr:g('adr'),cp:g('cp'),ville:g('ville'),delai:$('#b-delai').value,rpe:$('#b-rpe').value,dest:g('dest'),email:g('email'),contact:g('contact'),tel:g('tel')});
-  saveSettings();
-  let blob;
-  try{blob=await makeLabFile(m,Object.assign({},settings,{dateEnvoi:$('#b-date').value,comm:g('comm')}));}
-  catch(err){toast('La génération du fichier a échoué (navigateur trop ancien ?).');return;}
+  const blob=await bordGen(m);if(!blob)return;
   dlgBord.close();
-  deliver(blob,'Bordereau_LAB-EXPERT_'+slug(m.ref)+'_'+todayISO()+'.xlsm');
+  deliver(blob,BORD_NAME(m));
 });
+function mailOk(a){return /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/.test(a);}
+async function bordMail(){
+  const m=active();if(!m)return;
+  const to=$('#b-labmail').value.trim(),cc=$('#b-labcc').value.trim();
+  if(!mailOk(to)){toast('Indiquez l’adresse e-mail du laboratoire.');$('#b-labmail').focus();return;}
+  if(cc&&!mailOk(cc)){toast('L’adresse en copie n’est pas valide.');$('#b-labcc').focus();return;}
+  const blob=await bordGen(m);if(!blob)return;
+  const n=m.prelevements.length,name=BORD_NAME(m);
+  const subject='Bordereau d’analyse amiante – '+(m.ref||'dossier')+' – '+n+' échantillon'+(n>1?'s':'');
+  const who=settings.contact||m.operateur||'';
+  const body=['Bonjour,','','Veuillez trouver ci-joint le bordereau d’analyse amiante pour le dossier '+(m.ref||'')+(m.adresse?' ('+[m.adresse,[m.cp,m.ville].filter(Boolean).join(' ')].filter(Boolean).join(', ')+')':'')+', soit '+n+' échantillon'+(n>1?'s':'')+'.','Délai souhaité : '+(settings.delai||'J+3')+'.','','Cordialement,',who,settings.nom||''].filter((x,i,a)=>x!==''||a[i-1]!=='').join('\n');
+  dlgBord.close();
+  const file=new File([blob],name,{type:'application/vnd.ms-excel.sheet.macroEnabled.12'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{navigator.clipboard.writeText(to).catch(()=>{});}catch(e){}
+    try{
+      await navigator.share({files:[file],title:subject,text:'À : '+to+(cc?'\nCopie : '+cc:'')+'\n\n'+subject+'\n\n'+body});
+      toast('Dans votre messagerie, destinataire : '+to+' (adresse copiée)');return;
+    }catch(e){if(e&&e.name==='AbortError')return;}
+  }
+  await deliver(blob,name,'Fichier enregistré : joignez-le au message');
+  const q='subject='+encodeURIComponent(subject)+(cc?'&cc='+encodeURIComponent(cc):'')+'&body='+encodeURIComponent(body);
+  setTimeout(()=>{try{window.location.href='mailto:'+encodeURIComponent(to).replace(/%40/g,'@')+'?'+q;}catch(e){}},600);
+}
+$('#btn-bord-mail').addEventListener('click',bordMail);
 function copyTable(){
   const m=active();if(!m)return;
   const clean=v=>String(v==null?'':v).replace(/[\t\r\n]+/g,' ');
@@ -1259,6 +1401,7 @@ wireCpVille('#b-cp','#b-ville');
 missions=readLocal();
 try{activeId=localStorage.getItem(LS_ACTIVE)||null;}catch(e){}
 render();
+initBackup();
 initCloud();
 loadIdf();
 })();

@@ -15,4 +15,7 @@ etre a la RACINE de l'adresse web (pas dans un sous-dossier du depot).
    apres la premiere ouverture.
 
 Les donnees restent sur l'appareil (pas de synchronisation telephone/ordinateur).
-Pour mettre a jour : remplacez les fichiers et changez la version dans sw.js (carnet-prelevements-amiante-v6).
+Pour mettre a jour : remplacez les fichiers et changez la version dans sw.js (carnet-prelevements-amiante-v7).
+
+ENVOI DU BORDEREAU PAR E-MAIL
+Bouton "Fichier Excel labo" puis "Envoyer par e-mail" : le telephone ouvre son partage avec le fichier joint ; choisissez votre messagerie. L'adresse du labo est copiee et rappelee dans le message.
